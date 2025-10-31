@@ -23,18 +23,17 @@ def grade_edge(p):
     return "F ❌"
 
 def calculate_metrics_safe(row):
+    """Always return 3 values per row to avoid ValueError."""
     try:
-        projection = row.get('projection', 10)
-        line = row.get('line', projection * 0.95)
-        std_dev = row.get('std_dev', 5)
-        if projection is None or line is None or std_dev is None:
-            return pd.Series([0.0, 0.0, "N/A"], index=['edge_pct', 'win_prob_over', 'grade'])
+        projection = float(row.get('projection', 10))
+        line = float(row.get('line', projection * 0.95))
+        std_dev = float(row.get('std_dev', 5))
         edge = ((projection - line) / line) * 100
         win_prob = 1 - normal_cdf(line, mean=projection, std=std_dev)
         grade = grade_edge(win_prob)
-        return pd.Series([edge, win_prob, grade], index=['edge_pct', 'win_prob_over', 'grade'])
+        return pd.Series([edge, win_prob, grade])
     except:
-        return pd.Series([0.0, 0.0, "N/A"], index=['edge_pct', 'win_prob_over', 'grade'])
+        return pd.Series([0.0, 0.0, "N/A"])
 
 # --------------------
 # Fetch NBA Active Players & Stats
@@ -140,24 +139,37 @@ st.markdown("Pick the strongest edges in NBA & NFL with style ⚡🏆")
 
 sport_tab = st.tabs(["NBA", "NFL"])
 
+# --------------------
+# NBA Tab
+# --------------------
 with sport_tab[0]:
     with st.spinner("Fetching NBA players and stats..."):
         nba_df = fetch_nba()
     nba_df['line'] = nba_df['projection'] * 0.95
     nba_df['std_dev'] = 5
-    nba_df[['edge_pct', 'win_prob_over', 'grade']] = nba_df.apply(calculate_metrics_safe, axis=1)
+    # Safe apply to avoid ValueError
+    metrics = nba_df.apply(calculate_metrics_safe, axis=1)
+    metrics.columns = ['edge_pct', 'win_prob_over', 'grade']
+    nba_df[['edge_pct', 'win_prob_over', 'grade']] = metrics
+
     pos_filter = st.multiselect("Filter by position:", options=nba_df['position'].dropna().unique(), default=nba_df['position'].dropna().unique())
     filtered_nba = nba_df[nba_df['position'].isin(pos_filter)]
     st.subheader("NBA – Active Players & Projections")
     st.dataframe(filtered_nba.style.background_gradient(subset=['edge_pct'], cmap='coolwarm').format({"projection": "{:.1f}", "edge_pct": "{:.1f}%", "win_prob_over": "{:.1%}"}))
     st.download_button("Download NBA CSV", filtered_nba.to_csv(index=False).encode('utf-8'), file_name="NBA_Underdog_Picks.csv")
 
+# --------------------
+# NFL Tab
+# --------------------
 with sport_tab[1]:
     with st.spinner("Fetching NFL players..."):
         nfl_df = fetch_nfl()
     nfl_df['line'] = nfl_df['projection'] * 0.95
     nfl_df['std_dev'] = 5
-    nfl_df[['edge_pct', 'win_prob_over', 'grade']] = nfl_df.apply(calculate_metrics_safe, axis=1)
+    metrics_nfl = nfl_df.apply(calculate_metrics_safe, axis=1)
+    metrics_nfl.columns = ['edge_pct', 'win_prob_over', 'grade']
+    nfl_df[['edge_pct', 'win_prob_over', 'grade']] = metrics_nfl
+
     pos_filter = st.multiselect("Filter by position:", options=nfl_df['position'].dropna().unique(), default=nfl_df['position'].dropna().unique())
     filtered_nfl = nfl_df[nfl_df['position'].isin(pos_filter)]
     st.subheader("NFL – Active Players & Projections")
