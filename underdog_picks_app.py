@@ -34,37 +34,62 @@ def calculate_metrics(row):
         return pd.Series([None, None, None])
 
 # --------------------
-# Fetch NBA Active Players & Stats
+# Fetch NBA Active Players & Stats (Fixed)
 # --------------------
 @st.cache_data(show_spinner=False)
 def fetch_nba(season=2025):
     players, page = [], 1
     while True:
-        resp = requests.get(f"https://www.balldontlie.io/api/v1/players?page={page}&per_page=100")
-        data = resp.json().get('data', [])
-        if not data: break
-        for p in data:
-            players.append({
-                "player": f"{p['first_name']} {p['last_name']}".strip(),
-                "team": p.get('team', {}).get('full_name'),
-                "position": p.get('position')
-            })
-        page += 1
-        time.sleep(0.05)
+        try:
+            resp = requests.get(f"https://www.balldontlie.io/api/v1/players?page={page}&per_page=100")
+            if resp.status_code != 200:
+                st.warning(f"NBA API request failed with status {resp.status_code}")
+                break
+            try:
+                data = resp.json().get('data', [])
+            except ValueError:
+                st.warning("Received invalid JSON from NBA API")
+                break
+            if not data:
+                break
+            for p in data:
+                if not p['team'] or not p['first_name'] or not p['last_name']:
+                    continue
+                players.append({
+                    "id": p['id'],
+                    "player": f"{p['first_name']} {p['last_name']}".strip(),
+                    "team": p.get('team', {}).get('full_name'),
+                    "position": p.get('position')
+                })
+            page += 1
+            time.sleep(0.05)
+        except Exception as e:
+            st.warning(f"Error fetching NBA players: {e}")
+            break
+
     roster_df = pd.DataFrame(players)
+    if roster_df.empty:
+        st.warning("No NBA players fetched.")
+        return pd.DataFrame(columns=["player", "team", "position", "projection"])
 
     stats_list = []
-    # Get player IDs for season averages
     for p in roster_df.itertuples():
         try:
-            resp = requests.get(f"https://www.balldontlie.io/api/v1/season_averages?season={season}&player_ids[]={p.id if hasattr(p,'id') else 0}")
-            data = resp.json().get('data', [])
-            projection = data[0]['pts'] if data else 10
+            resp = requests.get(f"https://www.balldontlie.io/api/v1/season_averages?season={season}&player_ids[]={p.id}")
+            if resp.status_code != 200:
+                projection = 10
+            else:
+                try:
+                    data = resp.json().get('data', [])
+                    projection = data[0]['pts'] if data else 10
+                except ValueError:
+                    projection = 10
             stats_list.append({"player": p.player, "projection": projection})
+            time.sleep(0.05)
         except:
             stats_list.append({"player": p.player, "projection": 10})
-    stats_df = pd.DataFrame(stats_list)
 
+    stats_df = pd.DataFrame(stats_list)
     roster_df['player'] = roster_df['player'].astype(str).str.strip()
     stats_df['player'] = stats_df['player'].astype(str).str.strip()
     merged = pd.merge(roster_df, stats_df, on='player', how='left')
@@ -81,7 +106,11 @@ def fetch_nfl():
         try:
             resp = requests.get(f"https://sports.core.api.espn.com/v3/sports/football/nfl/athletes?page={page}&limit=500")
             resp.raise_for_status()
-            data = resp.json().get('items', [])
+            try:
+                data = resp.json().get('items', [])
+            except ValueError:
+                st.warning("Received invalid JSON from NFL API")
+                break
             if not data: break
             for p in data:
                 name = p.get('fullName')
@@ -94,9 +123,10 @@ def fetch_nfl():
         except:
             break
     df = pd.DataFrame(players)
-    df['player'] = df['player'].astype(str).str.strip()
-    if 'projection' not in df.columns:
-        df['projection'] = 10
+    if not df.empty:
+        df['player'] = df['player'].astype(str).str.strip()
+        if 'projection' not in df.columns:
+            df['projection'] = 10
     return df
 
 # --------------------
@@ -111,14 +141,11 @@ sport_tab = st.tabs(["NBA", "NFL"])
 with sport_tab[0]:
     with st.spinner("Fetching NBA players and stats..."):
         nba_df = fetch_nba()
-    # Dynamic styling for top picks
     nba_df['line'] = nba_df['projection'] * 0.95
     nba_df['std_dev'] = 5
     nba_df[['edge_pct', 'win_prob_over', 'grade']] = nba_df.apply(calculate_metrics, axis=1)
-    # Filters
     pos_filter = st.multiselect("Filter by position:", options=nba_df['position'].dropna().unique(), default=nba_df['position'].dropna().unique())
     filtered_nba = nba_df[nba_df['position'].isin(pos_filter)]
-    # Display table with fun highlights
     st.subheader("NBA – Active Players & Projections")
     st.dataframe(filtered_nba.style.background_gradient(subset=['edge_pct'], cmap='coolwarm').format({"projection": "{:.1f}", "edge_pct": "{:.1f}%", "win_prob_over": "{:.1%}"}))
     st.download_button("Download NBA CSV", filtered_nba.to_csv(index=False).encode('utf-8'), file_name="NBA_Underdog_Picks.csv")
