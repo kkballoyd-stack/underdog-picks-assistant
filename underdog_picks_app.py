@@ -101,6 +101,20 @@ def fetch_nhl():
     return pd.DataFrame(players)
 
 # --------------------
+# Calculate edge and win probability
+# --------------------
+def calculate_metrics(row):
+    try:
+        if pd.isna(row['your_projection']) or pd.isna(row['underdog_line']):
+            return pd.Series([None, None, None])
+        edge_pct = ((row['your_projection'] - row['underdog_line']) / row['underdog_line']) * 100
+        win_prob = 1 - normal_cdf(row['underdog_line'], mean=row['your_projection'], std=row['std_dev'])
+        grade = grade_edge(win_prob)
+        return pd.Series([edge_pct, win_prob, grade])
+    except Exception:
+        return pd.Series([None, None, None])
+
+# --------------------
 # Streamlit App Layout
 # --------------------
 st.set_page_config(page_title="Underdog Picks App", layout="wide")
@@ -138,11 +152,24 @@ else:
     merged_df["your_projection"] = None
     merged_df["std_dev"] = None
 
-# Calculate edge & win probability
-def calculate_metrics(row):
-    try:
-        if pd.isna(row['your_projection']) or pd.isna(row['underdog_line']):
-            return pd.Series([None, None, None])
-        edge_pct = ((row['your_projection'] - row['underdog_line']) / row['underdog_line']) * 100
-        win_prob = 1 - normal_cdf(row['underdog_line'], mean=row['your_projection'], std=row['std_dev'])
-        grade
+# Apply metrics
+merged_df[['edge_pct', 'win_prob_over', 'grade']] = merged_df.apply(calculate_metrics, axis=1)
+
+# Display results
+st.subheader(f"{sport} – Merged Roster & Picks")
+st.dataframe(merged_df.sort_values(by="edge_pct", ascending=False), use_container_width=True)
+
+# CSV download
+st.download_button(
+    "Download merged CSV",
+    merged_df.to_csv(index=False).encode("utf-8"),
+    file_name=f"{sport}_underdog_picks.csv"
+)
+
+st.markdown("""
+---
+**Notes:**  
+- Rosters come from legal public APIs.  
+- Upload your projections CSV to merge with rosters.  
+- `edge_pct`, `win_prob_over`, and `grade` highlight strongest picks.
+""")
