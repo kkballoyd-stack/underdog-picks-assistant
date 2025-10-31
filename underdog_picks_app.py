@@ -47,7 +47,7 @@ def fetch_nba():
             if not data: break
             for p in data:
                 players.append({
-                    "player": f"{p['first_name']} {p['last_name']}",
+                    "player": f"{p['first_name']} {p['last_name']}".strip(),
                     "team": p.get('team', {}).get('full_name'),
                     "position": p.get('position')
                 })
@@ -68,16 +68,16 @@ def fetch_nba_stats():
             data = resp.json().get('data', [])
             if not data: break
             for s in data:
-                player_name = f"{s['player']['first_name']} {s['player']['last_name']}"
+                player_name = f"{s['player']['first_name']} {s['player']['last_name']}".strip()
                 pts = s.get('pts', 0)
                 reb = s.get('reb', 0)
                 ast = s.get('ast', 0)
                 stats_list.append({
-                    "player": player_name.strip(),
+                    "player": player_name,
                     "pts": pts,
                     "reb": reb,
                     "ast": ast,
-                    "projection": pts  # simple projection based on season points average
+                    "projection": pts  # simple projection
                 })
             page += 1
             time.sleep(0.05)
@@ -100,7 +100,7 @@ def fetch_nfl():
                 team = p.get('team', {}).get('displayName') if p.get('team') else None
                 pos = p.get('position', {}).get('abbreviation') if p.get('position') else None
                 if name:
-                    players.append({"player": name.strip(), "team": team, "position": pos, "projection": 10})  # placeholder projection
+                    players.append({"player": name.strip(), "team": team, "position": pos, "projection": 10})
             page += 1
             time.sleep(0.05)
         except:
@@ -119,7 +119,7 @@ def fetch_mlb():
                     "player": p['person']['fullName'].strip(),
                     "team": team['name'],
                     "position": p['position']['abbreviation'],
-                    "projection": 10  # placeholder projection
+                    "projection": 10
                 })
             time.sleep(0.05)
     except: pass
@@ -137,7 +137,7 @@ def fetch_nhl():
                     "player": p['person']['fullName'].strip(),
                     "team": t['name'],
                     "position": p['position']['code'],
-                    "projection": 10  # placeholder projection
+                    "projection": 10
                 })
             time.sleep(0.05)
     except: pass
@@ -155,11 +155,16 @@ with st.spinner("Fetching roster and projections..."):
     if sport == "NBA":
         roster_df = fetch_nba()
         stats_df = fetch_nba_stats()
-        # Clean up names
         roster_df['player'] = roster_df['player'].astype(str).str.strip()
-        stats_df['player'] = stats_df['player'].astype(str).str.strip()
-        merged = pd.merge(roster_df, stats_df, on='player', how='left')
-        merged['projection'] = merged['projection'].fillna(10)  # fill missing
+        if not stats_df.empty and 'player' in stats_df.columns:
+            stats_df['player'] = stats_df['player'].astype(str).str.strip()
+            merged = pd.merge(roster_df, stats_df, on='player', how='left')
+            if 'projection' not in merged.columns:
+                merged['projection'] = 10
+            merged['projection'] = merged['projection'].fillna(10)
+        else:
+            merged = roster_df.copy()
+            merged['projection'] = 10
     elif sport == "NFL":
         merged = fetch_nfl()
     elif sport == "MLB":
@@ -189,6 +194,6 @@ st.markdown("""
 ---
 **Notes:**  
 - Rosters come from public legal APIs.  
-- Projections are placeholders or season averages (NBA has real stats).  
+- NBA projections are based on season stats; other sports use placeholder projections.  
 - `edge_pct`, `win_prob_over`, and `grade` highlight strongest picks.
 """)
