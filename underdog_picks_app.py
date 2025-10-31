@@ -1,9 +1,10 @@
-# underdog_picks_app.py
+# underdog_picks_app_fun.py
 import streamlit as st
 import pandas as pd
 import requests
 import time
 import math
+import plotly.express as px
 
 # --------------------
 # Helper Functions
@@ -17,13 +18,12 @@ def grade_edge(p):
     pct = p * 100
     if pct >= 70: return "A+ 🏆"
     if pct >= 65: return "A ⚡"
-    if pct >= 60: return "B"
-    if pct >= 55: return "C"
+    if pct >= 60: return "B 🔥"
+    if pct >= 55: return "C 🌟"
     if pct >= 50: return "D"
     return "F ❌"
 
 def calculate_metrics_safe(row):
-    """Always return 3 values per row to avoid ValueError."""
     try:
         projection = float(row.get('projection', 10))
         line = float(row.get('line', projection * 0.95))
@@ -36,142 +36,143 @@ def calculate_metrics_safe(row):
         return pd.Series([0.0, 0.0, "N/A"])
 
 # --------------------
-# Fetch NBA Active Players & Stats
+# Fetch NBA Players & Stats
 # --------------------
 @st.cache_data(show_spinner=False)
-def fetch_nba(season=2025):
-    players, page = [], 1
-    while True:
-        try:
+def fetch_nba():
+    players = []
+    try:
+        page = 1
+        while True:
             resp = requests.get(f"https://www.balldontlie.io/api/v1/players?page={page}&per_page=100")
-            if resp.status_code != 200:
-                st.warning(f"NBA API request failed with status {resp.status_code}")
-                break
-            try:
-                data = resp.json().get('data', [])
-            except ValueError:
-                st.warning("Received invalid JSON from NBA API")
-                break
+            resp.raise_for_status()
+            data = resp.json().get('data', [])
             if not data: break
             for p in data:
-                if not p['team'] or not p['first_name'] or not p['last_name']:
-                    continue
+                if not p['first_name'] or not p['last_name']: continue
                 players.append({
                     "id": p['id'],
                     "player": f"{p['first_name']} {p['last_name']}".strip(),
                     "team": p.get('team', {}).get('full_name'),
-                    "position": p.get('position')
+                    "position": p.get('position'),
+                    "projection": 10
                 })
             page += 1
             time.sleep(0.05)
-        except Exception as e:
-            st.warning(f"Error fetching NBA players: {e}")
-            break
-
-    roster_df = pd.DataFrame(players)
-    if roster_df.empty:
-        st.warning("No NBA players fetched.")
-        return pd.DataFrame(columns=["player", "team", "position", "projection"])
-
-    stats_list = []
-    for p in roster_df.itertuples():
-        try:
-            resp = requests.get(f"https://www.balldontlie.io/api/v1/season_averages?season={season}&player_ids[]={p.id}")
-            if resp.status_code != 200:
-                projection = 10
-            else:
-                try:
-                    data = resp.json().get('data', [])
-                    projection = data[0]['pts'] if data else 10
-                except ValueError:
-                    projection = 10
-            stats_list.append({"player": p.player, "projection": projection})
+        df = pd.DataFrame(players)
+        if df.empty: return pd.DataFrame(columns=["player","team","position","projection"])
+        projections = []
+        for p in df.itertuples():
+            try:
+                r = requests.get(f"https://www.balldontlie.io/api/v1/season_averages?season=2025&player_ids[]={p.id}")
+                r.raise_for_status()
+                data = r.json().get('data', [])
+                pts = data[0]['pts'] if data else 10
+                projections.append(pts)
+            except: projections.append(10)
             time.sleep(0.05)
-        except:
-            stats_list.append({"player": p.player, "projection": 10})
-
-    stats_df = pd.DataFrame(stats_list)
-    roster_df['player'] = roster_df['player'].astype(str).str.strip()
-    stats_df['player'] = stats_df['player'].astype(str).str.strip()
-    merged = pd.merge(roster_df, stats_df, on='player', how='left')
-    merged['projection'] = merged.get('projection', 10).fillna(10)
-    return merged
+        df['projection'] = projections
+        return df
+    except:
+        return pd.DataFrame(columns=["player","team","position","projection"])
 
 # --------------------
-# Fetch NFL Active Players
+# Fetch NFL Players
 # --------------------
 @st.cache_data(show_spinner=False)
 def fetch_nfl():
-    players, page = [], 1
-    while True:
-        try:
+    players = []
+    page = 1
+    try:
+        while True:
             resp = requests.get(f"https://sports.core.api.espn.com/v3/sports/football/nfl/athletes?page={page}&limit=500")
             resp.raise_for_status()
-            try:
-                data = resp.json().get('items', [])
-            except ValueError:
-                st.warning("Received invalid JSON from NFL API")
-                break
+            data = resp.json().get('items', [])
             if not data: break
             for p in data:
                 name = p.get('fullName')
                 if not name: continue
                 team = p.get('team', {}).get('displayName') if p.get('team') else None
                 pos = p.get('position', {}).get('abbreviation') if p.get('position') else None
-                players.append({"player": name.strip(), "team": team, "position": pos, "projection": 10})
+                players.append({
+                    "player": name.strip(),
+                    "team": team,
+                    "position": pos,
+                    "projection": 10
+                })
             page += 1
             time.sleep(0.05)
-        except:
-            break
-    df = pd.DataFrame(players)
-    if not df.empty:
-        df['player'] = df['player'].astype(str).str.strip()
-        if 'projection' not in df.columns:
-            df['projection'] = 10
-    return df
+        return pd.DataFrame(players)
+    except:
+        return pd.DataFrame(columns=["player","team","position","projection"])
 
 # --------------------
-# Streamlit Fun Layout
+# Streamlit Layout
 # --------------------
-st.set_page_config(page_title="Underdog Picks", layout="wide")
-st.title("🎯 Underdog Picks Assistant")
-st.markdown("Pick the strongest edges in NBA & NFL with style ⚡🏆")
+st.set_page_config(page_title="Underdog Picks Fun", layout="wide")
+st.title("🔥 Underdog Picks Assistant")
+st.markdown("Discover your strongest edges in NBA & NFL with visuals, colors, and fun!")
 
-sport_tab = st.tabs(["NBA", "NFL"])
+tabs = st.tabs(["NBA", "NFL"])
 
 # --------------------
 # NBA Tab
 # --------------------
-with sport_tab[0]:
+with tabs[0]:
     with st.spinner("Fetching NBA players and stats..."):
         nba_df = fetch_nba()
-    nba_df['line'] = nba_df['projection'] * 0.95
-    nba_df['std_dev'] = 5
-    # Safe apply to avoid ValueError
-    metrics = nba_df.apply(calculate_metrics_safe, axis=1)
-    metrics.columns = ['edge_pct', 'win_prob_over', 'grade']
-    nba_df[['edge_pct', 'win_prob_over', 'grade']] = metrics
+    if not nba_df.empty:
+        nba_df['line'] = nba_df['projection']*0.95
+        nba_df['std_dev'] = 5
+        metrics = nba_df.apply(calculate_metrics_safe, axis=1)
+        metrics.columns = ['edge_pct','win_prob_over','grade']
+        nba_df[['edge_pct','win_prob_over','grade']] = metrics
 
-    pos_filter = st.multiselect("Filter by position:", options=nba_df['position'].dropna().unique(), default=nba_df['position'].dropna().unique())
-    filtered_nba = nba_df[nba_df['position'].isin(pos_filter)]
-    st.subheader("NBA – Active Players & Projections")
-    st.dataframe(filtered_nba.style.background_gradient(subset=['edge_pct'], cmap='coolwarm').format({"projection": "{:.1f}", "edge_pct": "{:.1f}%", "win_prob_over": "{:.1%}"}))
-    st.download_button("Download NBA CSV", filtered_nba.to_csv(index=False).encode('utf-8'), file_name="NBA_Underdog_Picks.csv")
+        pos_filter = st.multiselect("Filter by position:", options=nba_df['position'].dropna().unique(), default=nba_df['position'].dropna().unique())
+        filtered_nba = nba_df[nba_df['position'].isin(pos_filter)]
+        
+        st.subheader("NBA – Active Players & Projections")
+        st.dataframe(filtered_nba.style.background_gradient(subset=['edge_pct'], cmap='plasma').format({
+            "projection":"{:.1f}", "edge_pct":"{:.1f}%", "win_prob_over":"{:.1%}"
+        }))
+
+        st.download_button("Download NBA CSV", filtered_nba.to_csv(index=False).encode('utf-8'), file_name="NBA_Underdog_Picks.csv")
+        
+        # Fun chart: Top 10 edges
+        top10 = filtered_nba.nlargest(10, 'edge_pct')
+        if not top10.empty:
+            fig = px.bar(top10, x='player', y='edge_pct', color='edge_pct', color_continuous_scale='plasma', title="Top 10 NBA Player Edges")
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("No NBA data available.")
 
 # --------------------
 # NFL Tab
 # --------------------
-with sport_tab[1]:
+with tabs[1]:
     with st.spinner("Fetching NFL players..."):
         nfl_df = fetch_nfl()
-    nfl_df['line'] = nfl_df['projection'] * 0.95
-    nfl_df['std_dev'] = 5
-    metrics_nfl = nfl_df.apply(calculate_metrics_safe, axis=1)
-    metrics_nfl.columns = ['edge_pct', 'win_prob_over', 'grade']
-    nfl_df[['edge_pct', 'win_prob_over', 'grade']] = metrics_nfl
+    if not nfl_df.empty:
+        nfl_df['line'] = nfl_df['projection']*0.95
+        nfl_df['std_dev'] = 5
+        metrics = nfl_df.apply(calculate_metrics_safe, axis=1)
+        metrics.columns = ['edge_pct','win_prob_over','grade']
+        nfl_df[['edge_pct','win_prob_over','grade']] = metrics
 
-    pos_filter = st.multiselect("Filter by position:", options=nfl_df['position'].dropna().unique(), default=nfl_df['position'].dropna().unique())
-    filtered_nfl = nfl_df[nfl_df['position'].isin(pos_filter)]
-    st.subheader("NFL – Active Players & Projections")
-    st.dataframe(filtered_nfl.style.background_gradient(subset=['edge_pct'], cmap='coolwarm').format({"projection": "{:.1f}", "edge_pct": "{:.1f}%", "win_prob_over": "{:.1%}"}))
-    st.download_button("Download NFL CSV", filtered_nfl.to_csv(index=False).encode('utf-8'), file_name="NFL_Underdog_Picks.csv")
+        pos_filter = st.multiselect("Filter by position:", options=nfl_df['position'].dropna().unique(), default=nfl_df['position'].dropna().unique())
+        filtered_nfl = nfl_df[nfl_df['position'].isin(pos_filter)]
+
+        st.subheader("NFL – Active Players & Projections")
+        st.dataframe(filtered_nfl.style.background_gradient(subset=['edge_pct'], cmap='plasma').format({
+            "projection":"{:.1f}", "edge_pct":"{:.1f}%", "win_prob_over":"{:.1%}"
+        }))
+
+        st.download_button("Download NFL CSV", filtered_nfl.to_csv(index=False).encode('utf-8'), file_name="NFL_Underdog_Picks.csv")
+        
+        # Fun chart: Top 10 edges
+        top10 = filtered_nfl.nlargest(10, 'edge_pct')
+        if not top10.empty:
+            fig = px.bar(top10, x='player', y='edge_pct', color='edge_pct', color_continuous_scale='plasma', title="Top 10 NFL Player Edges")
+            st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.warning("No NFL data available.")
