@@ -34,155 +34,105 @@ def calculate_metrics(row):
         return pd.Series([None, None, None])
 
 # --------------------
-# Fetch Rosters and Stats
+# Fetch NBA Data
 # --------------------
 @st.cache_data(show_spinner=False)
-def fetch_nba():
+def fetch_nba_roster_and_stats(season=2025):
+    # Fetch current NBA players
     players, page, per_page = [], 1, 100
     while True:
         try:
             resp = requests.get(f"https://www.balldontlie.io/api/v1/players?page={page}&per_page={per_page}")
             resp.raise_for_status()
             data = resp.json().get('data', [])
-            if not data: break
+            if not data:
+                break
             for p in data:
-                players.append({
-                    "player": f"{p['first_name']} {p['last_name']}".strip(),
-                    "team": p.get('team', {}).get('full_name'),
-                    "position": p.get('position')
-                })
+                full_name = f"{p['first_name']} {p['last_name']}".strip()
+                players.append({"player": full_name, "team": p.get('team', {}).get('full_name'), "position": p.get('position')})
             page += 1
             time.sleep(0.05)
         except:
             break
-    return pd.DataFrame(players)
+    roster_df = pd.DataFrame(players)
 
-@st.cache_data(show_spinner=False)
-def fetch_nba_stats():
-    stats_list = []
-    page, per_page = 1, 100
+    # Fetch season averages for projections
+    stats_list, page = [], 1
     while True:
         try:
-            resp = requests.get(f"https://www.balldontlie.io/api/v1/stats?seasons[]=2025&per_page={per_page}&page={page}")
+            resp = requests.get(f"https://www.balldontlie.io/api/v1/stats?seasons[]={season}&per_page=100&page={page}")
             resp.raise_for_status()
             data = resp.json().get('data', [])
-            if not data: break
+            if not data:
+                break
             for s in data:
                 player_name = f"{s['player']['first_name']} {s['player']['last_name']}".strip()
                 pts = s.get('pts', 0)
                 reb = s.get('reb', 0)
                 ast = s.get('ast', 0)
-                stats_list.append({
-                    "player": player_name,
-                    "pts": pts,
-                    "reb": reb,
-                    "ast": ast,
-                    "projection": pts
-                })
+                stats_list.append({"player": player_name, "projection": pts})
             page += 1
             time.sleep(0.05)
         except:
             break
-    return pd.DataFrame(stats_list)
+    stats_df = pd.DataFrame(stats_list)
 
+    # Clean and merge
+    roster_df['player'] = roster_df['player'].astype(str).str.strip()
+    if not stats_df.empty and 'player' in stats_df.columns:
+        stats_df['player'] = stats_df['player'].astype(str).str.strip()
+        merged = pd.merge(roster_df, stats_df, on='player', how='left')
+        merged['projection'] = merged.get('projection', 10).fillna(10)
+    else:
+        merged = roster_df.copy()
+        merged['projection'] = 10
+
+    return merged
+
+# --------------------
+# Fetch NFL Data
+# --------------------
 @st.cache_data(show_spinner=False)
-def fetch_nfl():
-    players = []
-    page = 1
+def fetch_nfl_roster():
+    players, page = [], 1
     while True:
         try:
             resp = requests.get(f"https://sports.core.api.espn.com/v3/sports/football/nfl/athletes?page={page}&limit=500")
             resp.raise_for_status()
             data = resp.json().get('items', [])
-            if not data: break
+            if not data:
+                break
             for p in data:
                 name = p.get('fullName')
+                if not name:
+                    continue
                 team = p.get('team', {}).get('displayName') if p.get('team') else None
                 pos = p.get('position', {}).get('abbreviation') if p.get('position') else None
-                if name:
-                    players.append({"player": name.strip(), "team": team, "position": pos, "projection": 10})
+                players.append({"player": name.strip(), "team": team, "position": pos, "projection": 10})
             page += 1
             time.sleep(0.05)
         except:
             break
-    return pd.DataFrame(players)
-
-@st.cache_data(show_spinner=False)
-def fetch_mlb():
-    players = []
-    try:
-        teams = requests.get("https://statsapi.mlb.com/api/v1/teams?sportIds=1").json().get('teams', [])
-        for team in teams:
-            roster = requests.get(f"https://statsapi.mlb.com/api/v1/teams/{team['id']}/roster").json().get('roster', [])
-            for p in roster:
-                players.append({
-                    "player": p['person']['fullName'].strip(),
-                    "team": team['name'],
-                    "position": p['position']['abbreviation'],
-                    "projection": 10
-                })
-            time.sleep(0.05)
-    except: pass
-    return pd.DataFrame(players)
-
-@st.cache_data(show_spinner=False)
-def fetch_nhl():
-    players = []
-    try:
-        teams = requests.get("https://statsapi.web.nhl.com/api/v1/teams").json().get('teams', [])
-        for t in teams:
-            roster = requests.get(f"https://statsapi.web.nhl.com/api/v1/teams/{t['id']}/roster").json().get('roster', [])
-            for p in roster:
-                players.append({
-                    "player": p['person']['fullName'].strip(),
-                    "team": t['name'],
-                    "position": p['position']['code'],
-                    "projection": 10
-                })
-            time.sleep(0.05)
-    except: pass
-    return pd.DataFrame(players)
+    df = pd.DataFrame(players)
+    if 'player' not in df.columns and not df.empty:
+        df['player'] = df.iloc[:, 0].astype(str).str.strip()
+    if 'projection' not in df.columns:
+        df['projection'] = 10
+    return df
 
 # --------------------
 # Streamlit Layout
 # --------------------
 st.set_page_config(page_title="Underdog Picks Assistant", layout="wide")
-st.title("📊 Underdog Picks Assistant (All Major Sports)")
+st.title("📊 Underdog Picks Assistant (NBA & NFL Only)")
 
-sport = st.selectbox("Select Sport", ["NBA", "NFL", "MLB", "NHL"])
+sport = st.selectbox("Select Sport", ["NBA", "NFL"])
 
-with st.spinner("Fetching roster and projections..."):
+with st.spinner("Fetching current roster and projections..."):
     if sport == "NBA":
-        roster_df = fetch_nba()
-        stats_df = fetch_nba_stats()
-        # Ensure 'player' exists
-        if 'player' not in roster_df.columns:
-            roster_df['player'] = roster_df.iloc[:,0].astype(str).str.strip()
-        if not stats_df.empty and 'player' in stats_df.columns:
-            stats_df['player'] = stats_df['player'].astype(str).str.strip()
-            merged = pd.merge(roster_df, stats_df, on='player', how='left')
-            merged['projection'] = merged.get('projection', 10).fillna(10)
-        else:
-            merged = roster_df.copy()
-            merged['projection'] = 10
-    elif sport == "NFL":
-        merged = fetch_nfl()
-        if 'player' not in merged.columns:
-            merged['player'] = merged.iloc[:,0].astype(str).str.strip()
-        if 'projection' not in merged.columns:
-            merged['projection'] = 10
-    elif sport == "MLB":
-        merged = fetch_mlb()
-        if 'player' not in merged.columns:
-            merged['player'] = merged.iloc[:,0].astype(str).str.strip()
-        if 'projection' not in merged.columns:
-            merged['projection'] = 10
+        merged = fetch_nba_roster_and_stats()
     else:
-        merged = fetch_nhl()
-        if 'player' not in merged.columns:
-            merged['player'] = merged.iloc[:,0].astype(str).str.strip()
-        if 'projection' not in merged.columns:
-            merged['projection'] = 10
+        merged = fetch_nfl_roster()
 
 # Default Underdog line and std_dev
 merged['line'] = merged.get('projection', 10) * 0.95
@@ -192,7 +142,7 @@ merged['std_dev'] = 5
 merged[['edge_pct', 'win_prob_over', 'grade']] = merged.apply(calculate_metrics, axis=1)
 
 # Display table
-st.subheader(f"{sport} – Current Roster & Projections")
+st.subheader(f"{sport} – Current Active Players & Projections")
 st.dataframe(merged.sort_values(by='edge_pct', ascending=False), use_container_width=True)
 
 # Download CSV
@@ -205,7 +155,8 @@ st.download_button(
 st.markdown("""
 ---
 **Notes:**  
-- Rosters come from public legal APIs.  
-- NBA projections are real stats; other sports use placeholders.  
+- Only active players are included.  
+- NBA projections are from Balldontlie season stats.  
+- NFL projections are default 10 (can be replaced with real stats later).  
 - `edge_pct`, `win_prob_over`, and `grade` highlight strongest picks.
 """)
