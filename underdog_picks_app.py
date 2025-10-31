@@ -13,7 +13,7 @@ def normal_cdf(x, mean=0, std=1):
 
 def grade_edge(p):
     if p is None:
-        return None
+        return "N/A"
     pct = p * 100
     if pct >= 70: return "A+ 🏆"
     if pct >= 65: return "A ⚡"
@@ -22,19 +22,22 @@ def grade_edge(p):
     if pct >= 50: return "D"
     return "F ❌"
 
-def calculate_metrics(row):
+def calculate_metrics_safe(row):
     try:
-        if pd.isna(row.get('projection')) or pd.isna(row.get('line')) or pd.isna(row.get('std_dev')):
-            return pd.Series([None, None, None])
-        edge = ((row['projection'] - row['line']) / row['line']) * 100
-        win_prob = 1 - normal_cdf(row['line'], mean=row['projection'], std=row['std_dev'])
+        projection = row.get('projection', 10)
+        line = row.get('line', projection * 0.95)
+        std_dev = row.get('std_dev', 5)
+        if projection is None or line is None or std_dev is None:
+            return pd.Series([0.0, 0.0, "N/A"], index=['edge_pct', 'win_prob_over', 'grade'])
+        edge = ((projection - line) / line) * 100
+        win_prob = 1 - normal_cdf(line, mean=projection, std=std_dev)
         grade = grade_edge(win_prob)
-        return pd.Series([edge, win_prob, grade])
+        return pd.Series([edge, win_prob, grade], index=['edge_pct', 'win_prob_over', 'grade'])
     except:
-        return pd.Series([None, None, None])
+        return pd.Series([0.0, 0.0, "N/A"], index=['edge_pct', 'win_prob_over', 'grade'])
 
 # --------------------
-# Fetch NBA Active Players & Stats (Fixed)
+# Fetch NBA Active Players & Stats
 # --------------------
 @st.cache_data(show_spinner=False)
 def fetch_nba(season=2025):
@@ -50,8 +53,7 @@ def fetch_nba(season=2025):
             except ValueError:
                 st.warning("Received invalid JSON from NBA API")
                 break
-            if not data:
-                break
+            if not data: break
             for p in data:
                 if not p['team'] or not p['first_name'] or not p['last_name']:
                     continue
@@ -143,7 +145,7 @@ with sport_tab[0]:
         nba_df = fetch_nba()
     nba_df['line'] = nba_df['projection'] * 0.95
     nba_df['std_dev'] = 5
-    nba_df[['edge_pct', 'win_prob_over', 'grade']] = nba_df.apply(calculate_metrics, axis=1)
+    nba_df[['edge_pct', 'win_prob_over', 'grade']] = nba_df.apply(calculate_metrics_safe, axis=1)
     pos_filter = st.multiselect("Filter by position:", options=nba_df['position'].dropna().unique(), default=nba_df['position'].dropna().unique())
     filtered_nba = nba_df[nba_df['position'].isin(pos_filter)]
     st.subheader("NBA – Active Players & Projections")
@@ -155,7 +157,7 @@ with sport_tab[1]:
         nfl_df = fetch_nfl()
     nfl_df['line'] = nfl_df['projection'] * 0.95
     nfl_df['std_dev'] = 5
-    nfl_df[['edge_pct', 'win_prob_over', 'grade']] = nfl_df.apply(calculate_metrics, axis=1)
+    nfl_df[['edge_pct', 'win_prob_over', 'grade']] = nfl_df.apply(calculate_metrics_safe, axis=1)
     pos_filter = st.multiselect("Filter by position:", options=nfl_df['position'].dropna().unique(), default=nfl_df['position'].dropna().unique())
     filtered_nfl = nfl_df[nfl_df['position'].isin(pos_filter)]
     st.subheader("NFL – Active Players & Projections")
