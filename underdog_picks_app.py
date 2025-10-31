@@ -77,7 +77,7 @@ def fetch_nba_stats():
                     "pts": pts,
                     "reb": reb,
                     "ast": ast,
-                    "projection": pts  # simple projection
+                    "projection": pts
                 })
             page += 1
             time.sleep(0.05)
@@ -155,22 +155,34 @@ with st.spinner("Fetching roster and projections..."):
     if sport == "NBA":
         roster_df = fetch_nba()
         stats_df = fetch_nba_stats()
-        roster_df['player'] = roster_df['player'].astype(str).str.strip()
+        # Ensure 'player' exists
+        if 'player' not in roster_df.columns:
+            roster_df['player'] = roster_df.iloc[:,0].astype(str).str.strip()
         if not stats_df.empty and 'player' in stats_df.columns:
             stats_df['player'] = stats_df['player'].astype(str).str.strip()
             merged = pd.merge(roster_df, stats_df, on='player', how='left')
-            if 'projection' not in merged.columns:
-                merged['projection'] = 10
-            merged['projection'] = merged['projection'].fillna(10)
+            merged['projection'] = merged.get('projection', 10).fillna(10)
         else:
             merged = roster_df.copy()
             merged['projection'] = 10
     elif sport == "NFL":
         merged = fetch_nfl()
+        if 'player' not in merged.columns:
+            merged['player'] = merged.iloc[:,0].astype(str).str.strip()
+        if 'projection' not in merged.columns:
+            merged['projection'] = 10
     elif sport == "MLB":
         merged = fetch_mlb()
+        if 'player' not in merged.columns:
+            merged['player'] = merged.iloc[:,0].astype(str).str.strip()
+        if 'projection' not in merged.columns:
+            merged['projection'] = 10
     else:
         merged = fetch_nhl()
+        if 'player' not in merged.columns:
+            merged['player'] = merged.iloc[:,0].astype(str).str.strip()
+        if 'projection' not in merged.columns:
+            merged['projection'] = 10
 
 # Default Underdog line and std_dev
 merged['line'] = merged.get('projection', 10) * 0.95
@@ -194,6 +206,6 @@ st.markdown("""
 ---
 **Notes:**  
 - Rosters come from public legal APIs.  
-- NBA projections are based on season stats; other sports use placeholder projections.  
+- NBA projections are real stats; other sports use placeholders.  
 - `edge_pct`, `win_prob_over`, and `grade` highlight strongest picks.
 """)
