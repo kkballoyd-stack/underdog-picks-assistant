@@ -49,8 +49,8 @@ def fetch_nfl():
     players, page = [], 1
     while True:
         try:
-            resp = requests.get(f"https://sports.core.api.espn.com/v3/sports/football/nfl/athletes?page={page}&limit=500}")
-            resp.raise_for_status()
+         resp = requests.get(f"https://sports.core.api.espn.com/v3/sports/football/nfl/athletes?page={page}&limit=500")
+         resp.raise_for_status()
             data = resp.json().get('items', [])
             if not data: break
             for p in data:
