@@ -4,7 +4,6 @@ import pandas as pd
 import requests
 import time
 import math
-import plotly.express as px
 
 # --------------------
 # Helper Functions
@@ -111,7 +110,7 @@ def fetch_nfl():
 # --------------------
 st.set_page_config(page_title="Underdog Picks Fun", layout="wide")
 st.title("🔥 Underdog Picks Assistant")
-st.markdown("Discover your strongest edges in NBA & NFL with visuals, colors, and fun!")
+st.markdown("Discover your strongest edges in NBA & NFL with fun highlights and colors!")
 
 tabs = st.tabs(["NBA", "NFL"])
 
@@ -138,11 +137,11 @@ with tabs[0]:
 
         st.download_button("Download NBA CSV", filtered_nba.to_csv(index=False).encode('utf-8'), file_name="NBA_Underdog_Picks.csv")
         
-        # Fun chart: Top 10 edges
+        # Top 10 edges table
         top10 = filtered_nba.nlargest(10, 'edge_pct')
         if not top10.empty:
-            fig = px.bar(top10, x='player', y='edge_pct', color='edge_pct', color_continuous_scale='plasma', title="Top 10 NBA Player Edges")
-            st.plotly_chart(fig, use_container_width=True)
+            st.markdown("### Top 10 NBA Player Edges 🔥")
+            st.dataframe(top10[['player','team','position','edge_pct','grade']].reset_index(drop=True))
     else:
         st.warning("No NBA data available.")
 
@@ -169,10 +168,10 @@ with tabs[1]:
 
         st.download_button("Download NFL CSV", filtered_nfl.to_csv(index=False).encode('utf-8'), file_name="NFL_Underdog_Picks.csv")
         
-        # Fun chart: Top 10 edges
+        # Top 10 edges table
         top10 = filtered_nfl.nlargest(10, 'edge_pct')
         if not top10.empty:
-            fig = px.bar(top10, x='player', y='edge_pct', color='edge_pct', color_continuous_scale='plasma', title="Top 10 NFL Player Edges")
-            st.plotly_chart(fig, use_container_width=True)
+            st.markdown("### Top 10 NFL Player Edges ⚡")
+            st.dataframe(top10[['player','team','position','edge_pct','grade']].reset_index(drop=True))
     else:
         st.warning("No NFL data available.")
