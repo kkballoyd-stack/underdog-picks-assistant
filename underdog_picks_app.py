@@ -146,4 +146,3 @@ def calculate_metrics(row):
         edge_pct = ((row['your_projection'] - row['underdog_line']) / row['underdog_line']) * 100
         win_prob = 1 - normal_cdf(row['underdog_line'], mean=row['your_projection'], std=row['std_dev'])
         grade
-
